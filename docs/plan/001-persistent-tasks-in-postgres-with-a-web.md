@@ -3,56 +3,96 @@ plan_id: 001-persistent-tasks-in-postgres-with-a-web
 spec: 001-persistent-tasks-in-postgres-with-a-web
 feature: Tasks persist in the system's Postgres database and people see and add them on the web task board
 gitops_app: ika100-demo/taskboard13-gitops
-status: draft
+status: completed
 repos:
-  - id: taskboard13-gitops
-    shape: gitops-app
-    summary: Declare the Postgres database, give the API access to it and wire the web to the API
-    acs: [AC-001.1, AC-001.2, AC-001.4]
-    order: before-merge
-    gitops:
-      - {resource: postgres, type: database}
-      - {uses: postgres, component: taskboard13-api}
-      - {env: {TASKBOARD13_API_URL: 'http://taskboard13-api'}, component: taskboard13-web}
-    depends_on: []
-    done: false
-  - id: taskboard13-api
-    shape: service-python
-    summary: Keep tasks in Postgres so they survive restarts, and answer 503 while the database is unreachable
-    acs: [AC-001.1, AC-001.7]
-    criteria:
-      - "Given tasks A, B and C were created with POST /tasks in that order, when the service restarts against the same database, then GET /tasks returns 200 with A, B and C in that order, each with the same id, title and due_date as in its 201 response (system AC-001.1) (replaces AC-001.7)"
-      - "Given the service starts with DATABASE_URL pointing at an empty database, when a client sends GET /tasks and then POST /tasks with {\"title\": \"Buy milk\"}, then GET answers 200 with [] and POST answers 201, without any manual schema step (system AC-001.1)"
-      - "Given the database is unreachable, when a client sends GET /tasks, then the response is 503 with a JSON body whose error is a non-empty string (system AC-001.7)"
-      - "Given the database is unreachable, when a client sends POST /tasks with a valid body, then the response is 503 with a JSON body whose error is a non-empty string, and once the database is reachable again GET /tasks does not contain that task (system AC-001.7)"
-      - "Given the database is unreachable, when the readiness endpoint GET /ready is called, then it answers 503, while GET /health still answers 200; when the database is reachable again, GET /ready answers 200 without a restart of the service (system AC-001.7)"
-    arguments: |
-      Database settings come from the injected DATABASE_URL (and PG*), never from a file in the repo.
-      The service creates or migrates its own schema at start; creation order must survive restarts
-      (store an ordering column, do not rely on row order). id stays 32 lowercase hex chars.
-      A request body that fails validation still answers 422 even while the database is down.
-    depends_on: []
-    done: false
-  - id: taskboard13-web
-    shape: web-nextjs
-    summary: Task board start page that lists tasks and adds a task through the Task API
-    acs: [AC-001.2, AC-001.3, AC-001.4, AC-001.5, AC-001.6, AC-001.8]
-    criteria:
-      - "Given GET /tasks on the API returns tasks, when a person opens the start page /, then it lists every returned task in the API's order (oldest first), each with its title and its due_date as YYYY-MM-DD, or the text \"No due date\" when due_date is null (system AC-001.2)"
-      - "Given GET /tasks on the API returns [], when a person opens the start page, then it shows \"No tasks yet\" (system AC-001.2)"
-      - "Given the API returns a task titled <b>Buy milk</b>, when a person opens the start page, then the page shows the literal text <b>Buy milk</b> and no <b> element is created from it (system AC-001.3)"
-      - "Given the start page is open, when a person enters the title \"Buy milk\", picks the due date 2026-12-01 in the date picker and submits the form above the list, then the web sends POST /tasks with {\"title\": \"Buy milk\", \"due_date\": \"2026-12-01\"} and, on 201, \"Buy milk\" with 2026-12-01 appears at the end of the list without a page reload and the form is cleared (system AC-001.4)"
-      - "Given the start page is open, when a person submits the form with a title and no due date, then the web sends POST /tasks with due_date null and the task appears at the end of the list with \"No due date\" (system AC-001.5)"
-      - "Given the start page is open, when a person submits an empty or whitespace-only title or one longer than 200 characters, then a message next to the title field says what is wrong, the entered values stay in the form, the list is unchanged and no POST /tasks is sent (system AC-001.6)"
-      - "Given the API answers POST /tasks with 422 naming the field title, when a person submits the form, then the same kind of message appears next to the title field, the entered values stay in the form and the list is unchanged (system AC-001.6)"
-      - "Given the API is unreachable, too slow (over 5 s) or answers a status the contract does not list, when a person opens the start page, then it shows \"Tasks could not be loaded. Please try again.\" instead of a list; when a person submits the form, then it shows \"The task could not be saved. Please try again.\" and keeps the entered values (system AC-001.8)"
-    arguments: |
-      The API base URL comes from the server-side env TASKBOARD13_API_URL (http://taskboard13-api in the
-      cluster); the browser never calls the API directly: list loading and form submission go through
-      the web's own server side (server component, route handler or server action).
-      The start page / replaces the template's landing page.
-    depends_on: []
-    done: false
+- id: taskboard13-gitops
+  shape: gitops-app
+  summary: Declare the Postgres database, give the API access to it and wire the web to the API
+  acs:
+  - AC-001.1
+  - AC-001.2
+  - AC-001.4
+  order: before-merge
+  gitops:
+  - resource: postgres
+    type: database
+  - uses: postgres
+    component: taskboard13-api
+  - env:
+      TASKBOARD13_API_URL: http://taskboard13-api
+    component: taskboard13-web
+  depends_on: []
+  done: true
+- id: taskboard13-api
+  shape: service-python
+  summary: Keep tasks in Postgres so they survive restarts, and answer 503 while the database is unreachable
+  acs:
+  - AC-001.1
+  - AC-001.7
+  criteria:
+  - Given tasks A, B and C were created with POST /tasks in that order, when the service restarts against
+    the same database, then GET /tasks returns 200 with A, B and C in that order, each with the same id,
+    title and due_date as in its 201 response (system AC-001.1) (replaces AC-001.7)
+  - 'Given the service starts with DATABASE_URL pointing at an empty database, when a client sends GET
+    /tasks and then POST /tasks with {"title": "Buy milk"}, then GET answers 200 with [] and POST answers
+    201, without any manual schema step (system AC-001.1)'
+  - Given the database is unreachable, when a client sends GET /tasks, then the response is 503 with a
+    JSON body whose error is a non-empty string (system AC-001.7)
+  - Given the database is unreachable, when a client sends POST /tasks with a valid body, then the response
+    is 503 with a JSON body whose error is a non-empty string, and once the database is reachable again
+    GET /tasks does not contain that task (system AC-001.7)
+  - Given the database is unreachable, when the readiness endpoint GET /ready is called, then it answers
+    503, while GET /health still answers 200; when the database is reachable again, GET /ready answers
+    200 without a restart of the service (system AC-001.7)
+  arguments: |
+    Database settings come from the injected DATABASE_URL (and PG*), never from a file in the repo.
+    The service creates or migrates its own schema at start; creation order must survive restarts
+    (store an ordering column, do not rely on row order). id stays 32 lowercase hex chars.
+    A request body that fails validation still answers 422 even while the database is down.
+  depends_on: []
+  done: true
+- id: taskboard13-web
+  shape: web-nextjs
+  summary: Task board start page that lists tasks and adds a task through the Task API
+  acs:
+  - AC-001.2
+  - AC-001.3
+  - AC-001.4
+  - AC-001.5
+  - AC-001.6
+  - AC-001.8
+  criteria:
+  - Given GET /tasks on the API returns tasks, when a person opens the start page /, then it lists every
+    returned task in the API's order (oldest first), each with its title and its due_date as YYYY-MM-DD,
+    or the text "No due date" when due_date is null (system AC-001.2)
+  - Given GET /tasks on the API returns [], when a person opens the start page, then it shows "No tasks
+    yet" (system AC-001.2)
+  - Given the API returns a task titled <b>Buy milk</b>, when a person opens the start page, then the
+    page shows the literal text <b>Buy milk</b> and no <b> element is created from it (system AC-001.3)
+  - 'Given the start page is open, when a person enters the title "Buy milk", picks the due date 2026-12-01
+    in the date picker and submits the form above the list, then the web sends POST /tasks with {"title":
+    "Buy milk", "due_date": "2026-12-01"} and, on 201, "Buy milk" with 2026-12-01 appears at the end of
+    the list without a page reload and the form is cleared (system AC-001.4)'
+  - Given the start page is open, when a person submits the form with a title and no due date, then the
+    web sends POST /tasks with due_date null and the task appears at the end of the list with "No due
+    date" (system AC-001.5)
+  - Given the start page is open, when a person submits an empty or whitespace-only title or one longer
+    than 200 characters, then a message next to the title field says what is wrong, the entered values
+    stay in the form, the list is unchanged and no POST /tasks is sent (system AC-001.6)
+  - Given the API answers POST /tasks with 422 naming the field title, when a person submits the form,
+    then the same kind of message appears next to the title field, the entered values stay in the form
+    and the list is unchanged (system AC-001.6)
+  - Given the API is unreachable, too slow (over 5 s) or answers a status the contract does not list,
+    when a person opens the start page, then it shows "Tasks could not be loaded. Please try again." instead
+    of a list; when a person submits the form, then it shows "The task could not be saved. Please try
+    again." and keeps the entered values (system AC-001.8)
+  arguments: |
+    The API base URL comes from the server-side env TASKBOARD13_API_URL (http://taskboard13-api in the
+    cluster); the browser never calls the API directly: list loading and form submission go through
+    the web's own server side (server component, route handler or server action).
+    The start page / replaces the template's landing page.
+  depends_on: []
+  done: true
 gitops_pin: []
 ---
 
